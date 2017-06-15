@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+
+    <script>
+        // Include version 1 of the engine base library.
+        document.write('<link rel="import" href="' + window.Alteryx.LibDir + '1/lib/alteryx/engine/includes.html">');
+    </script>
+
+    <script>
+		// global variables
+		var globalConfig, globalMetaInfo;
+		
+		/*
+			var xhrObj = new XMLHttpRequest();
+			// open and send a synchronous request
+			xhrObj.open('GET', 'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.14.0/lodash.js', false);
+			xhrObj.send('');
+			// add the returned content to a newly created script tag
+			var se = document.createElement('script');
+			se.type = "text/javascript";
+			se.text = xhrObj.responseText;
+			document.getElementsByTagName('head')[0].appendChild(se);
+		*/
+		var includeFunction = "function includeJs(include) { var xhrObj = new XMLHttpRequest(); xhrObj.open('GET', include, false); xhrObj.send(''); var se = document.createElement('script'); se.type = 'text/javascript'; se.text = xhrObj.responseText; document.getElementsByTagName('head')[0].appendChild(se); }";
+		
+		var readMetaFunction = 'function readAlteryxMetadata() { return globalMetaInfo.RecordInfo.Field }\n';
+		var writeMetaFunction = 'function writeAlteryxMetadata(outputMetadata) {Alteryx.Engine.SendMessage.RecordInfo("Output", {Field: outputMetadata})}\n';
+		var readFunction = 'function readAlteryxData() { return data.Records }\n';
+		var writeFunction = 'function writeAlteryxData(outputData) {Alteryx.Engine.SendMessage.PushRecords("Output", outputData)}\n';
+		
+		var messageFunction = 'function logAlteryxMessage(message) {Alteryx.Engine.SendMessage.Info(message)}\n';
+		var warningFunction = 'function logAlteryxWarning(message) {Alteryx.Engine.SendMessage.Warning(message)}\n';
+		var errorFunction = 'function logAlteryxError(message) {Alteryx.Engine.SendMessage.Error(message)}\n';
+		
+		var completeFunction = 'function notifyAlteryxComplete() {Alteryx.Engine.SendMessage.Complete()}\n';
+		
+		var allFunctions = includeFunction + readMetaFunction + writeMetaFunction + readFunction + writeFunction + messageFunction + warningFunction + errorFunction + completeFunction;
+		
+        /**
+         * This function defines our input and output connections.
+         * It must match the input and output connections defined in the GUI plugin's XML file.
+         */
+        Alteryx.Plugin.DefineConnections = function()
+        {
+            return {
+                IncomingConnections: [{
+                    type: "Input",
+                    GroupInfo: {
+                        count: 0,
+                        grouping: "false"
+                    }
+                }],
+                OutgoingConnections: [{
+                    name: "Output"
+                }]
+            };
+        };
+
+        /**
+         * Called at the beginning of plugin lifetime with the plugin's configuration properties.
+         * This implementation contains example code that prints each configuration key/value pair as
+         * an engine output message.
+         *
+         * @params config The plugin's configuration.
+         */
+        Alteryx.Plugin.PI_Init = function(config)
+        {
+			globalConfig = config;
+        };
+
+        /**
+         * Called once for each incoming connection with the connection's metainfo. When a per-connection init comes in,
+         * we would probably store off the incoming RecordInfo.
+         *
+         * @params metaInfo The meta-information for the current incoming connection.
+         */
+        Alteryx.Plugin.II_Init = function(metaInfo)
+        {
+			globalMetaInfo = metaInfo;
+        };
+
+        /**
+         * After II_Init has been called for each incoming connection, II_PushRecords is called for each non-empty
+         * incoming connection with that connection's records. This implementation contains example code that
+         * pushes out the same records it receives.
+         *
+         * @param data The incoming records.
+         */
+        Alteryx.Plugin.II_PushRecords = function(data)
+        {	
+			try {
+				eval(allFunctions + globalConfig.Configuration.code);
+			} catch(err) {
+				if (err.message) {
+					Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
+				} else {
+					Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
+				}
+				Alteryx.Engine.SendMessage.Complete();			
+			}
+        };
+
+        /**
+         * II_AllClosed is called with no arguments after all incoming connections have closed. This implementation
+         * sends a CloseOutput message with the name of the outgoing connection to close.
+         *
+         * All code paths must terminate with a call to Alteryx.Engine.SendMessage.Complete()
+         */
+        Alteryx.Plugin.II_AllClosed = function()
+        {
+            Alteryx.Engine.SendMessage.CloseOutput(Alteryx.Plugin.DefineConnections().OutgoingConnections[0].name);
+            Alteryx.Engine.SendMessage.Complete();
+        };
+
+        /**
+         * If the tool has no input:
+         *    PI_PushAllRecords is called instead of the II functions.
+         *    It is also called at configure time with a record limit of 0.
+         *
+         * If this function is implemented, all code paths must signal completion with a call to
+         *    Alteryx.Engine.SendMessage.Complete()
+         *
+         * @param recordLimit The maximum number of records that this function should return.
+         */
+        Alteryx.Plugin.PI_PushAllRecords = function(recordLimit)
+        {
+			if (globalConfig.Configuration.code && globalConfig.Configuration.code.replace(/\s/g,'').includes('notifyAlteryxComplete()')) {
+				try {
+					eval(allFunctions + globalConfig.Configuration.code);
+				} catch(err) {
+					if (err.message) {
+						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
+					} else {
+						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
+					}
+					Alteryx.Engine.SendMessage.Complete();			
+				}
+			} else {
+				Alteryx.Engine.SendMessage.Error('The code must contain "notifyAlteryxComplete()"');
+				Alteryx.Engine.SendMessage.Complete();
+			}
+        };
+
+        /**
+         * PI_Close is called with no arguments at the end of the plugin's lifetime.
+         * All code paths must terminate with a call to Alteryx.Engine.SendMessage.PI_Close()
+         */
+        Alteryx.Plugin.PI_Close = function()
+        {
+            Alteryx.Engine.SendMessage.PI_Close();
+        };
+
+    </script>
+</head>
+<body>
+</body>
+</html>

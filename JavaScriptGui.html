@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title></title>
+    <script type="text/javascript">
+        // Include version 1 of the base GUI library.
+        document.write('<link rel="import" href="' + window.Alteryx.LibDir + '1/lib/alteryx/gui/includes.html">');
+    </script>
+	<script src="lib/codemirror.js"></script>
+	<link rel="stylesheet" href="lib/codemirror.css">
+	<script src="mode/javascript/javascript.js"></script>
+	
+	<style>
+		/* Style The Dropdown Button */
+		.dropbtn {
+			background-color: #1691C6;
+			color: white;
+			padding: 10px;
+			font-size: 12px;
+			border: none;
+			cursor: pointer;
+		}
+
+		/* The container <div> - needed to position the dropdown content */
+		.dropdown {
+			position: relative;
+			display: inline-block;
+		}
+
+		/* Dropdown Content (Hidden by Default) */
+		.dropdown-content {
+			display: none;
+			position: absolute;
+			background-color: #f9f9f9;
+			min-width: 150px;
+			box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+			z-index: 100;
+		}
+
+		/* Links inside the dropdown */
+		.dropdown-content div {
+			color: black;
+			padding: 12px 16px;
+			text-decoration: none;
+			display: block;
+			cursor: pointer;
+		}
+
+		/* Change color of dropdown links on hover */
+		.dropdown-content div:hover {background-color: #f1f1f1}
+
+		/* Show the dropdown menu on hover */
+		.dropdown:hover .dropdown-content {
+			display: block;
+		}
+
+		/* Change the background color of the dropdown button when the dropdown content is shown */
+		.dropdown:hover .dropbtn {
+			background-color: #1380AF;
+		}
+	</style>	
+</head>
+<body>
+    <div style="display: none"><alteryx-pluginwidget type="TextArea" rows="5" dataName="code"></alteryx-pluginwidget></div>
+	<div class="dropdown">
+	  <button class="dropbtn">Insert Code</button>
+	  <div class="dropdown-content">
+	    <div onclick="insertImport()">Import JS</div>
+		<div onclick="insertMetaRead()">Read Metadata</div>
+		<div onclick="insertMetaWrite()">Write Metadata</div>	  
+		<div onclick="insertRead()">Read Data</div>
+		<div onclick="insertWrite()">Write Data</div>
+		<div onclick="insertMessage()">Log Message</div>
+		<div onclick="insertWarning()">Log Warning</div>
+		<div onclick="insertError()">Log Error</div>
+		<div onclick="insertComplete()">Complete</div>
+	  </div>
+	</div>
+	</br></br>
+	
+    <script type="text/javascript">
+		var codeEditor;
+
+		var messageWelcome = 
+			'// Start typing code here or insert Alteryx-specific\n' +
+			'// functions with the above "Insert Code" button.';
+		var messageInclude = 
+			'// The includeJs function imports a .js file argument (string).\n' +
+			"includeJs('https://code.jquery.com/jquery-3.1.0.min.js')";
+		var messageInMetadata = 
+			'// The readAlteryxMetadata function returns the incoming metadata as an array of objects.\n' +
+			'readAlteryxMetadata()';
+		var messageOutMetadata = 
+			'// The writeAlteryxMetadata function outputs the metadata argument which must be an array of objects.\n' +
+			"writeAlteryxMetadata([{name:'Field1 name', type:'String', size:10, source:'JavaScript tool', description:'Example string field'}, {name:'Field2 name', type:'Int64', description:'Example integer field'}])";
+		var messageInData = 
+			'// The readAlteryxData function returns the incoming data as an array of arrays.\n' +
+			'readAlteryxData()';
+		var messageOutData = 
+			'// The writeAlteryxData function outputs the data argument which must be an array of arrays.\n' +
+			"writeAlteryxData([['abc',1],['xyz',2]])";
+		var messageInfo = 
+			'// The logAlteryxMessage function writes the argument (string) to the log as a message.\n' +
+			"logAlteryxMessage('Example message')";
+		var messageWarning = 
+			'// The logAlteryxWarning function writes the argument (string) to the log as a warning.\n' +
+			"logAlteryxWarning('Example warning')";
+		var messageError = 
+			'// The logAlteryxError function writes the argument (string) to the log as an error.\n' +
+			"logAlteryxError('Example error')";
+		var messageComplete = 
+			'// The notifyAlteryxComplete function is used to tell Alteryx that the code path is complete.\n' +
+			'// It should only be used when there is no incoming data connection to the JavaScript tool.\n' +
+			'notifyAlteryxComplete()';
+			
+		var curLine = 0;
+        /**
+         * Specify actions that will take place before the tool's configuration is loaded into the manager.
+         *
+         * @param manager The data manager.
+         * @param AlteryxDataItems The data items in use on this page.
+         */
+        Alteryx.Gui.BeforeLoad = function(manager, AlteryxDataItems) {
+			
+        };
+
+        /**
+         * Set the tool's default annotation on the canvas.
+         *
+         * @param manager The data manager.
+         * @returns {string}
+         */
+        Alteryx.Gui.Annotation = function(manager) {
+            return '';
+        };
+
+        Alteryx.Gui.AfterLoad = function(manager){
+			var codeToLoad = Alteryx.Gui.manager.GetDataItem('code').getValue();
+			if (codeToLoad === '') {
+				codeToLoad = messageWelcome;
+			}
+			codeEditor = CodeMirror(document.body, {
+				value: codeToLoad,
+				mode:  "javascript"
+			});
+			codeEditor.on("change", function(codeEditor, change) {
+				Alteryx.Gui.manager.GetDataItem('code').setValue(codeEditor.getValue());
+			});
+			codeEditor.on("cursorActivity", function(codeEditor) {
+				curLine = codeEditor.getCursor().line;
+				console.log(codeEditor.getCursor());
+			});	
+        };
+		
+		function insert(message) {
+			curLine--;
+			if (curLine === -1) {
+				message = message + '\n\n';
+			} else {
+				message = '\n' + message + '\n';
+			}
+			codeEditor.replaceRange(message, {line: curLine, char: 0});		
+		}
+
+		function insertImport() {
+			insert(messageInclude);
+		}
+		
+		function insertMetaRead() {
+			insert(messageInMetadata);
+		}
+
+		function insertMetaWrite() {
+			insert(messageOutMetadata);
+		}	
+		
+		function insertRead() {
+			insert(messageInData);
+		}
+
+		function insertWrite() {
+			insert(messageOutData);
+		}
+		
+		function insertMessage() {
+			insert(messageInfo);
+		}
+		
+		function insertWarning() {
+			insert(messageWarning);
+		}
+		
+		function insertError() {
+			insert(messageError);
+		}
+		
+		function insertComplete() {
+			insert(messageComplete);
+		}
+    </script>
+
+</body>
+</html>
