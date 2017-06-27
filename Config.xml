@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<AlteryxJavaScriptPlugin>
+    <Properties>
+        <MetaInfo>
+            <Name>JavaScript</Name>
+            <Description><![CDATA[Execute JavaScript code.]]></Description>
+            <ToolVersion>0.1</ToolVersion>
+            <CategoryName>Developer</CategoryName>
+            <Author>Neil Ryan</Author>
+            <Icon>JavaScriptIcon.png</Icon>
+        </MetaInfo>
+    </Properties>
+</AlteryxJavaScriptPlugin>
