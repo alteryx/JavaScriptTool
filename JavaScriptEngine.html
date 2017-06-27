@@ -10,21 +10,9 @@
 
     <script>
 		// global variables
-		var globalConfig, globalMetaInfo;
+		var globalConfig, globalMetaInfo, globalIncludes;
 		
-		/*
-			var xhrObj = new XMLHttpRequest();
-			// open and send a synchronous request
-			xhrObj.open('GET', 'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.14.0/lodash.js', false);
-			xhrObj.send('');
-			// add the returned content to a newly created script tag
-			var se = document.createElement('script');
-			se.type = "text/javascript";
-			se.text = xhrObj.responseText;
-			document.getElementsByTagName('head')[0].appendChild(se);
-		*/
-		var includeFunction = "function includeJs(include) { var xhrObj = new XMLHttpRequest(); xhrObj.open('GET', include, false); xhrObj.send(''); var se = document.createElement('script'); se.type = 'text/javascript'; se.text = xhrObj.responseText; document.getElementsByTagName('head')[0].appendChild(se); }";
-		
+		// more user friendly functions for engine api
 		var readMetaFunction = 'function readAlteryxMetadata() { return globalMetaInfo.RecordInfo.Field }\n';
 		var writeMetaFunction = 'function writeAlteryxMetadata(outputMetadata) {Alteryx.Engine.SendMessage.RecordInfo("Output", {Field: outputMetadata})}\n';
 		var readFunction = 'function readAlteryxData() { return data.Records }\n';
@@ -36,7 +24,7 @@
 		
 		var completeFunction = 'function notifyAlteryxComplete() {Alteryx.Engine.SendMessage.Complete()}\n';
 		
-		var allFunctions = includeFunction + readMetaFunction + writeMetaFunction + readFunction + writeFunction + messageFunction + warningFunction + errorFunction + completeFunction;
+		var allFunctions = readMetaFunction + writeMetaFunction + readFunction + writeFunction + messageFunction + warningFunction + errorFunction + completeFunction;
 		
         /**
          * This function defines our input and output connections.
@@ -68,6 +56,31 @@
         Alteryx.Plugin.PI_Init = function(config)
         {
 			globalConfig = config;
+			var promise, promiseArray = [], includes = [];
+			
+			// parse includes into array
+			if (globalConfig.Configuration.includes && globalConfig.Configuration.includes.trim().length > 0) {
+				includes = globalConfig.Configuration.includes.split(',');
+			}
+			
+			// create an array of promises for the includes
+			for (i = 0; i < includes.length; i++) {
+				promise = new Promise(function(resolve, reject) {
+					var script = document.createElement('script');
+					script.async = true;
+					script.src = includes[i].trim();
+
+					// trigger fulfilled state when script is ready
+					script.onload = resolve;
+
+					// trigger rejected state when script is not found
+					script.onerror = reject;
+
+					document.head.appendChild(script);
+				});
+				promiseArray.push(promise);
+			}
+			globalIncludes = Promise.all(promiseArray);
         };
 
         /**
@@ -81,6 +94,7 @@
 			globalMetaInfo = metaInfo;
         };
 
+		
         /**
          * After II_Init has been called for each incoming connection, II_PushRecords is called for each non-empty
          * incoming connection with that connection's records. This implementation contains example code that
@@ -90,16 +104,23 @@
          */
         Alteryx.Plugin.II_PushRecords = function(data)
         {	
-			try {
-				eval(allFunctions + globalConfig.Configuration.code);
-			} catch(err) {
-				if (err.message) {
-					Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
-				} else {
-					Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
+			// only run code once promises are fulfilled (once scripts are loaded)
+			globalIncludes.then(function(value){		
+				try {
+					// execute the code!
+					eval(allFunctions + globalConfig.Configuration.code);
+				} catch(err) {
+					if (err.message) {
+						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
+					} else {
+						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
+					}
+					Alteryx.Engine.SendMessage.Complete();
 				}
-				Alteryx.Engine.SendMessage.Complete();			
-			}
+			}, function(reason) {
+				Alteryx.Engine.SendMessage.Error('The script failed to load');
+				Alteryx.Engine.SendMessage.Complete();
+			});
         };
 
         /**
@@ -126,19 +147,35 @@
          */
         Alteryx.Plugin.PI_PushAllRecords = function(recordLimit)
         {
-			if (globalConfig.Configuration.code && globalConfig.Configuration.code.replace(/\s/g,'').includes('notifyAlteryxComplete()')) {
-				try {
-					eval(allFunctions + globalConfig.Configuration.code);
-				} catch(err) {
-					if (err.message) {
-						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
+			// make sure code doesn't run at config-time
+			if (recordLimit.RecordLimit > 0) {
+				
+				// only run code once promises are fulfilled (once scripts are loaded)
+				globalIncludes.then(function(value){
+				
+					// check for complete flag. this isn't robust - Alteryx will hang if all code paths don't include the flag
+					if (globalConfig.Configuration.code && globalConfig.Configuration.code.replace(/\s/g,'').includes('notifyAlteryxComplete()')) {
+						try {
+						
+							// execute the code!
+							eval(allFunctions + globalConfig.Configuration.code);
+						} catch(err) {
+							if (err.message) {
+								Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
+							} else {
+								Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
+							}
+							Alteryx.Engine.SendMessage.Complete();			
+						}
 					} else {
-						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
+						Alteryx.Engine.SendMessage.Error('The code must contain "notifyAlteryxComplete()"');
+						Alteryx.Engine.SendMessage.Complete();
 					}
-					Alteryx.Engine.SendMessage.Complete();			
-				}
+				}, function(reason) {
+					Alteryx.Engine.SendMessage.Error('The script failed to load');
+					Alteryx.Engine.SendMessage.Complete();
+				});
 			} else {
-				Alteryx.Engine.SendMessage.Error('The code must contain "notifyAlteryxComplete()"');
 				Alteryx.Engine.SendMessage.Complete();
 			}
         };

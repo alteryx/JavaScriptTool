@@ -62,11 +62,12 @@
 	</style>	
 </head>
 <body>
+	<label>Script files to include (comma separated URLs)</label>
+	<alteryx-pluginwidget type="TextArea" rows="2" dataName="includes"></alteryx-pluginwidget>
     <div style="display: none"><alteryx-pluginwidget type="TextArea" rows="5" dataName="code"></alteryx-pluginwidget></div>
 	<div class="dropdown">
 	  <button class="dropbtn">Insert Code</button>
 	  <div class="dropdown-content">
-	    <div onclick="insertImport()">Import JS</div>
 		<div onclick="insertMetaRead()">Read Metadata</div>
 		<div onclick="insertMetaWrite()">Write Metadata</div>	  
 		<div onclick="insertRead()">Read Data</div>
@@ -85,9 +86,6 @@
 		var messageWelcome = 
 			'// Start typing code here or insert Alteryx-specific\n' +
 			'// functions with the above "Insert Code" button.';
-		var messageInclude = 
-			'// The includeJs function imports a .js file argument (string).\n' +
-			"includeJs('https://code.jquery.com/jquery-3.1.0.min.js')";
 		var messageInMetadata = 
 			'// The readAlteryxMetadata function returns the incoming metadata as an array of objects.\n' +
 			'readAlteryxMetadata()';
@@ -163,10 +161,6 @@
 			codeEditor.replaceRange(message, {line: curLine, char: 0});		
 		}
 
-		function insertImport() {
-			insert(messageInclude);
-		}
-		
 		function insertMetaRead() {
 			insert(messageInMetadata);
 		}
