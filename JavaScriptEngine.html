@@ -10,12 +10,13 @@
 
     <script>
 		// global variables
-		var globalConfig, globalMetaInfo, globalIncludes;
+		var globalConfig, globalMetaInfo, globalIncludes, globalIncomingData;
 		
 		// more user friendly functions for engine api
 		var readMetaFunction = 'function readAlteryxMetadata() { return globalMetaInfo.RecordInfo.Field }\n';
 		var writeMetaFunction = 'function writeAlteryxMetadata(outputMetadata) {Alteryx.Engine.SendMessage.RecordInfo("Output", {Field: outputMetadata})}\n';
-		var readFunction = 'function readAlteryxData() { return data.Records }\n';
+		
+		var readFunction = 'function readAlteryxData() { return globalIncomingData.Records }\n';
 		var writeFunction = 'function writeAlteryxData(outputData) {Alteryx.Engine.SendMessage.PushRecords("Output", outputData)}\n';
 		
 		var messageFunction = 'function logAlteryxMessage(message) {Alteryx.Engine.SendMessage.Info(message)}\n';
@@ -25,6 +26,62 @@
 		var completeFunction = 'function notifyAlteryxComplete() {Alteryx.Engine.SendMessage.Complete()}\n';
 		
 		var allFunctions = readMetaFunction + writeMetaFunction + readFunction + writeFunction + messageFunction + warningFunction + errorFunction + completeFunction;
+		
+		// create a promise representing the include scripts so that we only execute the code when all scripts have loaded
+		function createIncludesPromise(){
+			var promise, promiseArray = [], includes = [];
+			
+			// parse includes into array
+			if (globalConfig.Configuration.includes && globalConfig.Configuration.includes.trim().length > 0) {
+				includes = globalConfig.Configuration.includes.split(',');
+			}
+			
+			// create an array of promises for the includes
+			for (i = 0; i < includes.length; i++) {
+				promise = new Promise(function(resolve, reject) {
+					var script = document.createElement('script');
+					script.async = true;
+					script.src = includes[i].trim();
+					script.onload = resolve;
+					script.onerror = reject;
+					document.head.appendChild(script);
+				});
+				promiseArray.push(promise);
+			}
+			globalIncludes = Promise.all(promiseArray);		
+		}
+		
+		// execute the custom user-provided code
+		function executeCode(){
+			// make sure code doesn't run at config-time
+			if (globalConfig.InitVar.UpdateOnly === "False") {
+				// only run code once promises are fulfilled (once scripts are loaded)
+				globalIncludes.then(function(value){
+					// check for complete flag. this isn't robust - Alteryx will hang if all code paths don't include the flag
+					if (globalConfig.Configuration.code && globalConfig.Configuration.code.replace(/\s/g,'').includes('notifyAlteryxComplete()')) {
+						try {
+							// execute the code!
+							eval(allFunctions + globalConfig.Configuration.code);
+						} catch(err) {
+							if (err.message) {
+								Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
+							} else {
+								Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
+							}
+							Alteryx.Engine.SendMessage.Complete();			
+						}
+					} else {
+						Alteryx.Engine.SendMessage.Error('The code must contain "notifyAlteryxComplete()"');
+						Alteryx.Engine.SendMessage.Complete();
+					}
+				}, function(reason) {
+					Alteryx.Engine.SendMessage.Error('The script failed to load');
+					Alteryx.Engine.SendMessage.Complete();
+				});
+			} else {
+				Alteryx.Engine.SendMessage.Complete();
+			}		
+		}
 		
         /**
          * This function defines our input and output connections.
@@ -48,39 +105,13 @@
 
         /**
          * Called at the beginning of plugin lifetime with the plugin's configuration properties.
-         * This implementation contains example code that prints each configuration key/value pair as
-         * an engine output message.
          *
          * @params config The plugin's configuration.
          */
         Alteryx.Plugin.PI_Init = function(config)
         {
 			globalConfig = config;
-			var promise, promiseArray = [], includes = [];
-			
-			// parse includes into array
-			if (globalConfig.Configuration.includes && globalConfig.Configuration.includes.trim().length > 0) {
-				includes = globalConfig.Configuration.includes.split(',');
-			}
-			
-			// create an array of promises for the includes
-			for (i = 0; i < includes.length; i++) {
-				promise = new Promise(function(resolve, reject) {
-					var script = document.createElement('script');
-					script.async = true;
-					script.src = includes[i].trim();
-
-					// trigger fulfilled state when script is ready
-					script.onload = resolve;
-
-					// trigger rejected state when script is not found
-					script.onerror = reject;
-
-					document.head.appendChild(script);
-				});
-				promiseArray.push(promise);
-			}
-			globalIncludes = Promise.all(promiseArray);
+			createIncludesPromise();
         };
 
         /**
@@ -94,45 +125,25 @@
 			globalMetaInfo = metaInfo;
         };
 
-		
         /**
          * After II_Init has been called for each incoming connection, II_PushRecords is called for each non-empty
-         * incoming connection with that connection's records. This implementation contains example code that
-         * pushes out the same records it receives.
+         * incoming connection with that connection's records. 
          *
          * @param data The incoming records.
          */
         Alteryx.Plugin.II_PushRecords = function(data)
         {	
-			// only run code once promises are fulfilled (once scripts are loaded)
-			globalIncludes.then(function(value){		
-				try {
-					// execute the code!
-					eval(allFunctions + globalConfig.Configuration.code);
-				} catch(err) {
-					if (err.message) {
-						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
-					} else {
-						Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
-					}
-					Alteryx.Engine.SendMessage.Complete();
-				}
-			}, function(reason) {
-				Alteryx.Engine.SendMessage.Error('The script failed to load');
-				Alteryx.Engine.SendMessage.Complete();
-			});
+			globalIncomingData = data;
         };
 
         /**
-         * II_AllClosed is called with no arguments after all incoming connections have closed. This implementation
-         * sends a CloseOutput message with the name of the outgoing connection to close.
+         * II_AllClosed is called with no arguments after all incoming connections have closed. 
          *
          * All code paths must terminate with a call to Alteryx.Engine.SendMessage.Complete()
          */
         Alteryx.Plugin.II_AllClosed = function()
         {
-            Alteryx.Engine.SendMessage.CloseOutput(Alteryx.Plugin.DefineConnections().OutgoingConnections[0].name);
-            Alteryx.Engine.SendMessage.Complete();
+			executeCode();
         };
 
         /**
@@ -147,37 +158,7 @@
          */
         Alteryx.Plugin.PI_PushAllRecords = function(recordLimit)
         {
-			// make sure code doesn't run at config-time
-			if (recordLimit.RecordLimit > 0) {
-				
-				// only run code once promises are fulfilled (once scripts are loaded)
-				globalIncludes.then(function(value){
-				
-					// check for complete flag. this isn't robust - Alteryx will hang if all code paths don't include the flag
-					if (globalConfig.Configuration.code && globalConfig.Configuration.code.replace(/\s/g,'').includes('notifyAlteryxComplete()')) {
-						try {
-						
-							// execute the code!
-							eval(allFunctions + globalConfig.Configuration.code);
-						} catch(err) {
-							if (err.message) {
-								Alteryx.Engine.SendMessage.Error('JavaScript error: ' + err.message);
-							} else {
-								Alteryx.Engine.SendMessage.Error('JavaScript error: ' + JSON.stringify(err));
-							}
-							Alteryx.Engine.SendMessage.Complete();			
-						}
-					} else {
-						Alteryx.Engine.SendMessage.Error('The code must contain "notifyAlteryxComplete()"');
-						Alteryx.Engine.SendMessage.Complete();
-					}
-				}, function(reason) {
-					Alteryx.Engine.SendMessage.Error('The script failed to load');
-					Alteryx.Engine.SendMessage.Complete();
-				});
-			} else {
-				Alteryx.Engine.SendMessage.Complete();
-			}
+			executeCode();
         };
 
         /**
@@ -188,7 +169,6 @@
         {
             Alteryx.Engine.SendMessage.PI_Close();
         };
-
     </script>
 </head>
 <body>
